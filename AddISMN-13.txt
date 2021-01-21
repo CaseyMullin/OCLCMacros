@@ -1,0 +1,26 @@
+'MacroName:NewMacro
+'MacroDescription:Add a new 024 2_ with a 13-digit ISMN based on an existing 024 2_ with a 10-digit ISMN. Also copies qualifier text ($q,$c) into new field.
+'Macro created by: Casey Mullin, mullinc3@wwu.edu
+'Macro last updated on: January 21, 2021
+
+
+Sub Main
+
+   Dim CS As Object
+   Set CS = CreateObject("Connex.Client")
+   Dim ShortISMN, CommonISMN As String
+   
+   For i = 1 to 10
+   bool = CS.GetField("024", i, ShortISMN)
+   
+   If bool = TRUE Then
+      If Mid(ShortISMN, 4, 1) = "2"  Then
+         If Mid(ShortISMN, 6, 1) = "M"  Then
+         CommonISMN = Mid(ShortISMN, 7, 24)
+         bool = CS.AddField(10,"0242 " & "9790" & CommonISMN)
+         End If
+      End If
+   End If
+   Next i
+
+End Sub
