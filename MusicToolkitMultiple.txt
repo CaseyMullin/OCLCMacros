@@ -1,0 +1,23 @@
+'MacroName:MusicToolkitMultiple
+'MacroDescription: Runs the OCLC Music Toolkit (and potentially other macros) on a list of local save file records, one at a time. Execute from the list screen.
+
+
+Sub Main
+
+   Dim CS As Object
+   Set CS = CreateObject("Connex.Client")
+
+   bool = CS.GetFirstItem
+   NextRec = TRUE
+
+   Do 
+      CS.RunMacro "NulMusic.mbk!MusicAddFields"
+	  ' Replace macrobook file name with your local file name, if different.
+	  ' Add additional macro calls by adding subsequet CS.RunMacro commands.
+      bool = CS.SaveToLocalFile(FALSE,FALSE)
+      NextRec = CS.GetNextItem
+   Loop While NextRec <> FALSE
+   bool = CS.CloseRecord(TRUE)
+
+Done: 
+End Sub
