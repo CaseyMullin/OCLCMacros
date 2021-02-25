@@ -1,5 +1,15 @@
 'MacroName:MusicToolkitMultiple
 'MacroDescription: Runs the OCLC Music Toolkit (and potentially other macros) on a list of local save file records, one at a time. Execute from the list screen.
+'Detailed instructions:
+'1)	(Make sure the OCLC Music Toolkit is installed in its own right first!)
+'2)	Pick your records to enhance
+'3)	Save them to a local save file
+'4)	Open the save file list screen
+'5)	Run the MusicToolkitMultiple macro
+'6)	Watch as it opens each record in turn and runs the Music Toolkit, then resaves the record. 
+'7)	Unless the Toolkit (or any of the other macros you add) pops up a dialog box (which requires clicking to dismiss it), this can run through your whole file without intervention. 
+'8)	Once the records are modified in the save file, you can then review and replace them as desired. Don’t forget to refine and amend the machine-generated fields as needed (and please follow MLA best practices!).
+
 
 
 Sub Main
@@ -13,7 +23,7 @@ Sub Main
    Do 
       CS.RunMacro "NulMusic.mbk!MusicAddFields"
 	  ' Replace macrobook file name with your local file name, if different.
-	  ' Add additional macro calls by adding subsequet CS.RunMacro commands.
+	  ' Add additional macro calls by adding subsequent CS.RunMacro commands.
       bool = CS.SaveToLocalFile(FALSE,FALSE)
       NextRec = CS.GetNextItem
    Loop While NextRec <> FALSE
