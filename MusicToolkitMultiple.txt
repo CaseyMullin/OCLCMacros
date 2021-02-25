@@ -1,4 +1,6 @@
 'MacroName:MusicToolkitMultiple
+'Macro created by: Casey Mullin, mullinc3@wwu.edu
+'Macro last updated on: February 25, 2021
 'MacroDescription: Runs the OCLC Music Toolkit (and potentially other macros) on a list of local save file records, one at a time. Execute from the list screen.
 'Detailed instructions:
 '1)	(Make sure the OCLC Music Toolkit is installed in its own right first!)
