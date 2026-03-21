@@ -1,7 +1,7 @@
 'MacroName:Add046
 'MacroDescription:Add and 046 fields based on existing 045 $b subfields. Intended for use in bib records in the score and sound recording format (Leader/06=c,d,i,j). Handling of 045 $a subfields will be added to the macro at a later date.
 'Macro created by: Casey Mullin, mullinc3@wwu.edu
-'Macro last updated on: November 1, 2024
+'Macro last updated on: March 21, 2026 (added 046 1st indicator 1 to all output by default)
 
 Declare Sub Score
 Declare Sub SingleDateScore
@@ -14,7 +14,7 @@ Sub Main
 'Tests for record type, then calls subroutine based on type. Non-music formats result in an error message
 
    Dim CS As Object
-   Set CS = CreateObject("Connex.Client")
+   Set CS = GetObject(, "Connex.Client")
    
    'Dim OldSingleDate As String
    'Dim NewSubODate As String
@@ -45,7 +45,7 @@ Sub Score
 'Tests for presence of 045 and calls specific subroutine based on 1st indicator value
 
      Dim CS As Object
-     Set CS = CreateObject("Connex.Client")
+     Set CS = GetObject(, "Connex.Client")
      Dim sField As String
      
      bool = CS.GetField("045", 1, sField)
@@ -69,7 +69,7 @@ Sub SR
 'Tests for presence of 045 and calls specific subroutine based on 1st indicator value
 
      Dim CS As Object
-     Set CS = CreateObject("Connex.Client")
+     Set CS = GetObject(, "Connex.Client")
      Dim sField As String
      
      bool = CS.GetField("045", 1, sField)
@@ -93,7 +93,7 @@ Sub SingleDateScore
 'Really, one single date, or a string of up to 6 single dates. Defaults to generating $k for the first 046 field. If resource is a compilation, user will need to manually change subfield coding
 
    Dim CS As Object
-   Set CS = CreateObject("Connex.Client")
+   Set CS = GetObject(, "Connex.Client")
    
    Dim OldSingleDate As String
    Dim NewSubKDate1 As String
@@ -122,21 +122,21 @@ Sub SingleDateScore
    NewSubODate6 = Mid(OldSingleDate, 55, 4)
    End If
    
-   bool = CS.AddField(10,"046  " & Chr(223) & "k " & NewSubKDate1 & " " & Chr(223) & "2 edtf")
+   bool = CS.AddField(10,"0461 " & Chr(223) & "k " & NewSubKDate1 & " " & Chr(223) & "2 edtf")
    If Len(OldSingleDate) >= 19 Then
-   bool = CS.AddField(11,"046  " & Chr(223) & "o " & NewSubODate2 & " " & Chr(223) & "2 edtf")
+   bool = CS.AddField(11,"0461 " & Chr(223) & "o " & NewSubODate2 & " " & Chr(223) & "2 edtf")
    End If
    If Len(OldSingleDate) >= 28 Then
-   bool = CS.AddField(12,"046  " & Chr(223) & "o " & NewSubODate3 & " " & Chr(223) & "2 edtf")
+   bool = CS.AddField(12,"0461 " & Chr(223) & "o " & NewSubODate3 & " " & Chr(223) & "2 edtf")
    End If
    If Len(OldSingleDate) >= 37 Then
-   bool = CS.AddField(13,"046  " & Chr(223) & "o " & NewSubODate4 & " " & Chr(223) & "2 edtf")
+   bool = CS.AddField(13,"0461 " & Chr(223) & "o " & NewSubODate4 & " " & Chr(223) & "2 edtf")
    End If
    If Len(OldSingleDate) >= 46 Then
-   bool = CS.AddField(14,"046  " & Chr(223) & "o " & NewSubODate5 & " " & Chr(223) & "2 edtf")
+   bool = CS.AddField(14,"0461 " & Chr(223) & "o " & NewSubODate5 & " " & Chr(223) & "2 edtf")
    End If
    If Len(OldSingleDate) >= 55 Then
-   bool = CS.AddField(15,"046  " & Chr(223) & "o " & NewSubODate6 & " " & Chr(223) & "2 edtf")
+   bool = CS.AddField(15,"0461 " & Chr(223) & "o " & NewSubODate6 & " " & Chr(223) & "2 edtf")
    End If
 
 End Sub
@@ -147,7 +147,7 @@ Sub RangeDatesScore
 'Defaults to generating 046 subfields $k and $l. If resource is a compilation, user will need to manually change subfield coding
 
    Dim CS As Object
-   Set CS = CreateObject("Connex.Client")
+   Set CS = GetObject(, "Connex.Client")
    
    Dim OldSingleDate As String
    Dim NewSubKDate As String
@@ -158,7 +158,7 @@ Sub RangeDatesScore
    NewSubKDate = Mid(OldSingleDate, 10, 4)
    NewSubLDate = Right(OldSingleDate, 4)
    
-   bool = CS.AddField(10,"046  " & Chr(223) & "k " & NewSubKDate & " " & Chr(223) & "l " & NewSubLDate & " " & Chr(223) & "2 edtf")
+   bool = CS.AddField(10,"0461 " & Chr(223) & "k " & NewSubKDate & " " & Chr(223) & "l " & NewSubLDate & " " & Chr(223) & "2 edtf")
 
 End Sub
 
@@ -168,7 +168,7 @@ Sub SingleDateSR
 'Really, one single date, or a string of up to 6 single dates. Defaults to generating subfield 046 subfield $o. If resource contains a single work, user will need to manually change subfield coding
 
    Dim CS As Object
-   Set CS = CreateObject("Connex.Client")
+   Set CS = GetObject(, "Connex.Client")
    
    Dim OldSingleDate As String
    Dim NewSubODate1 As String
@@ -197,21 +197,21 @@ Sub SingleDateSR
    NewSubODate6 = Mid(OldSingleDate, 55, 4)
    End If
    
-   bool = CS.AddField(10,"046  " & Chr(223) & "o " & NewSubODate1 & " " & Chr(223) & "2 edtf")
+   bool = CS.AddField(10,"0461 " & Chr(223) & "o " & NewSubODate1 & " " & Chr(223) & "2 edtf")
    If Len(OldSingleDate) >= 19 Then
-   bool = CS.AddField(11,"046  " & Chr(223) & "o " & NewSubODate2 & " " & Chr(223) & "2 edtf")
+   bool = CS.AddField(11,"0461 " & Chr(223) & "o " & NewSubODate2 & " " & Chr(223) & "2 edtf")
    End If
    If Len(OldSingleDate) >= 28 Then
-   bool = CS.AddField(12,"046  " & Chr(223) & "o " & NewSubODate3 & " " & Chr(223) & "2 edtf")
+   bool = CS.AddField(12,"0461 " & Chr(223) & "o " & NewSubODate3 & " " & Chr(223) & "2 edtf")
    End If
    If Len(OldSingleDate) >= 37 Then
-   bool = CS.AddField(13,"046  " & Chr(223) & "o " & NewSubODate4 & " " & Chr(223) & "2 edtf")
+   bool = CS.AddField(13,"0461 " & Chr(223) & "o " & NewSubODate4 & " " & Chr(223) & "2 edtf")
    End If
    If Len(OldSingleDate) >= 46 Then
-   bool = CS.AddField(14,"046  " & Chr(223) & "o " & NewSubODate5 & " " & Chr(223) & "2 edtf")
+   bool = CS.AddField(14,"0461 " & Chr(223) & "o " & NewSubODate5 & " " & Chr(223) & "2 edtf")
    End If
    If Len(OldSingleDate) >= 55 Then
-   bool = CS.AddField(15,"046  " & Chr(223) & "o " & NewSubODate6 & " " & Chr(223) & "2 edtf")
+   bool = CS.AddField(15,"0461 " & Chr(223) & "o " & NewSubODate6 & " " & Chr(223) & "2 edtf")
    End If
 
 End Sub
@@ -222,7 +222,7 @@ Sub RangeDatesSR
 'Defaults to generating 046 subfields $o and $p. If resource contains a single work, user will need to manually change subfield coding
 
    Dim CS As Object
-   Set CS = CreateObject("Connex.Client")
+   Set CS = GetObject(, "Connex.Client")
    
    Dim OldSingleDate As String
    Dim NewSubODate As String
@@ -233,6 +233,6 @@ Sub RangeDatesSR
    NewSubODate = Mid(OldSingleDate, 10, 4)
    NewSubPDate = Right(OldSingleDate, 4)
    
-   bool = CS.AddField(10,"046  " & Chr(223) & "o " & NewSubODate & " " & Chr(223) & "p " & NewSubPDate & " " & Chr(223) & "2 edtf")
+   bool = CS.AddField(10,"0461 " & Chr(223) & "o " & NewSubODate & " " & Chr(223) & "p " & NewSubPDate & " " & Chr(223) & "2 edtf")
 
 End Sub
