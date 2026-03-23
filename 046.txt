@@ -1,7 +1,40 @@
 'MacroName:Add046
-'MacroDescription:Add and 046 fields based on existing 045 $b subfields. Intended for use in bib records in the score and sound recording format (Leader/06=c,d,i,j). Handling of 045 $a subfields will be added to the macro at a later date.
+'MacroDescription:Add 046 field(s) from 045 $b when present; otherwise fall back to dates found in 245, then 505.
+'Intended for use in bib records in the score and sound recording formats (Leader/06 = c,d,i,j).
+'-----------------------------------------------
+' NOTE ON 245/505 DATE PARSING LIMITATIONS
+'
+' This macro attempts to derive 046 fields from
+' dates found in 045, 245, and (as a fallback)
+' 505 fields using pattern-based string scanning.
+'
+' While most common patterns are handled correctly
+' (including YYYY, YYYY-YYYY, YYYY/YY, and
+' "YYYY, rev. YYYY"), parsing is inherently
+' heuristic due to the variability of MARC text
+' strings and limitations of the Connexion macro
+' language.
+'
+' Known limitation:
+' - In some 505 strings, especially those combining
+'   truncated ranges and additional dates (e.g.
+'   "1945-46, revised 1982"), the macro may fail
+'   to recognize the range and instead treat the
+'   dates as separate single years.
+'
+' This behavior is inconsistent and depends on
+' subtle variations in spacing and punctuation
+' returned by GetField().
+'
+' Users should review generated 046 fields and
+' correct any misinterpreted ranges as needed.
+'
+' This tradeoff was accepted to preserve macro
+' performance and maintainability.
+'-----------------------------------------------
+
 'Macro created by: Casey Mullin, mullinc3@wwu.edu
-'Macro last updated on: March 21, 2026 (added 046 1st indicator 1 to all output by default)
+'Macro last updated on: March 23, 2026
 
 Declare Sub Score
 Declare Sub SingleDateScore
@@ -10,229 +43,886 @@ Declare Sub SR
 Declare Sub SingleDateSR
 Declare Sub RangeDatesSR
 
+Declare Sub Try245FallbackScore
+Declare Sub Try245FallbackSR
+Declare Sub Try505Fallback
+
+Declare Function Get245ABText(s245)
+Declare Function Get505Text(s505)
+Declare Function FindFirstYearPos(sText)
+Declare Function FindNextYearPos(sText, nStartPos)
+Declare Function GetYearAtPos(sText, nPos)
+Declare Function IsSaneYear(sYear)
+Declare Function GetBetweenText(sText, nPos1, nPos2)
+Declare Function StripSpaces(sText)
+Declare Function SecondDateGetsIndicator2(sBetween)
+Declare Function IsExplicitRangeBetweenYears(sBetween)
+Declare Function FindTruncatedRangeEndYear(sText, nPos1)
+Declare Function ExpandTruncatedYear(sYear1, sYY)
+Declare Function FindTruncatedRangeEndPos(sText, nPos1)
+Declare Function FindFullRangeEndPos(sText, nPos1)
+Declare Function Add505DatesFromText(sText, nAddPos)
+
 Sub Main
-'Tests for record type, then calls subroutine based on type. Non-music formats result in an error message
+    Dim CS As Object
+    Set CS = GetObject(, "Connex.Client")
 
-   Dim CS As Object
-   Set CS = GetObject(, "Connex.Client")
-   
-   'Dim OldSingleDate As String
-   'Dim NewSubODate As String
-   'Dim NewSubPDate As String
-   Dim sRecType As String
-   
-   CS.GetFixedField "Type", sRecType
-   
-   If sRecType = "c" Then
-      Call Score
-      ElseIf sRecType = "d" Then
-      Call Score
-      ElseIf sRecType = "j" Then
-      Call SR
-      ElseIf sRecType = "i" Then
-      Call SR
-      Else 
-         MsgBox "To use this macro, start with a score or sound recording record."
+    Dim sRecType As String
+    CS.GetFixedField "Type", sRecType
+
+    If sRecType = "c" Then
+        Call Score
+    ElseIf sRecType = "d" Then
+        Call Score
+    ElseIf sRecType = "j" Then
+        Call SR
+    ElseIf sRecType = "i" Then
+        Call SR
+    Else
+        MsgBox "To use this macro, start with a score or sound recording record."
     End If
-   
-   'Chr(223) is delimiter character
-
 End Sub
-
-  
 
 Sub Score
-'Tests for presence of 045 and calls specific subroutine based on 1st indicator value
+    Dim CS As Object
+    Set CS = GetObject(, "Connex.Client")
 
-     Dim CS As Object
-     Set CS = GetObject(, "Connex.Client")
-     Dim sField As String
-     
-     bool = CS.GetField("045", 1, sField)
-     If bool = TRUE Then
-         If Mid(sField, 4, 1) = "1" Then
+    Dim s045 As String
+    Dim s046 As String
+    Dim bool
+
+    bool = CS.GetField("046", 1, s046)
+    If bool = TRUE Then Exit Sub
+
+    bool = CS.GetField("045", 1, s045)
+    If bool = TRUE Then
+        If Mid(s045, 4, 1) = "1" Then
             Call SingleDateScore
-            ElseIf Mid(sField, 4, 1) = "2" Then
+        ElseIf Mid(s045, 4, 1) = "2" Then
             Call RangeDatesScore
-            Else 
-               Call SingleDateScore
-         End If
-         Else 
-        '    MsgBox "Record does not contain a properly formatted 045 field."
-     End If
-     
+        Else
+            Call SingleDateScore
+        End If
+    Else
+        Call Try245FallbackScore
+    End If
 End Sub
-
-
 
 Sub SR
-'Tests for presence of 045 and calls specific subroutine based on 1st indicator value
+    Dim CS As Object
+    Set CS = GetObject(, "Connex.Client")
 
-     Dim CS As Object
-     Set CS = GetObject(, "Connex.Client")
-     Dim sField As String
-     
-     bool = CS.GetField("045", 1, sField)
-     If bool = TRUE Then
-         If Mid(sField, 4, 1) = "1" Then
+    Dim s045 As String
+    Dim s046 As String
+    Dim bool
+
+    bool = CS.GetField("046", 1, s046)
+    If bool = TRUE Then Exit Sub
+
+    bool = CS.GetField("045", 1, s045)
+    If bool = TRUE Then
+        If Mid(s045, 4, 1) = "1" Then
             Call SingleDateSR
-            ElseIf Mid(sField, 4, 1) = "2" Then
+        ElseIf Mid(s045, 4, 1) = "2" Then
             Call RangeDatesSR
-            Else 
-               Call SingleDateSR
-         End If
-         Else 
-       '     MsgBox "Record does not contain a properly formatted 045 field."
-     End If
-     
+        Else
+            Call SingleDateSR
+        End If
+    Else
+        Call Try245FallbackSR
+    End If
 End Sub
 
+Sub Try245FallbackScore
+    Dim CS As Object
+    Set CS = GetObject(, "Connex.Client")
 
+    Dim s245 As String
+    Dim sText As String
+    Dim sYear1 As String
+    Dim sYear2 As String
+    Dim sBetween As String
+    Dim nPos1 As Integer
+    Dim nPos2 As Integer
+    Dim nRangeEndPos As Integer
+    Dim bool
+    Dim sInd2 As String
+    Dim didAdd
+
+    didAdd = FALSE
+
+    bool = CS.GetField("245", 1, s245)
+    If bool <> TRUE Then
+        Call Try505Fallback
+        Exit Sub
+    End If
+
+    sText = Get245ABText(s245)
+    If sText = "" Then
+        Call Try505Fallback
+        Exit Sub
+    End If
+
+    nPos1 = FindFirstYearPos(sText)
+    If nPos1 = 0 Then
+        Call Try505Fallback
+        Exit Sub
+    End If
+
+    sYear1 = GetYearAtPos(sText, nPos1)
+    If sYear1 = "" Then
+        Call Try505Fallback
+        Exit Sub
+    End If
+
+    'First check for a full range immediately after year1.
+    nRangeEndPos = FindFullRangeEndPos(sText, nPos1)
+    If nRangeEndPos > 0 Then
+        sYear2 = GetYearAtPos(sText, nRangeEndPos)
+        bool = CS.AddField(10, "0461 " & Chr(223) & "k " & sYear1 & " " & Chr(223) & "l " & sYear2 & " " & Chr(223) & "2 edtf")
+        didAdd = TRUE
+
+        'Look for an additional later year after the full range.
+        nPos2 = FindNextYearPos(sText, nRangeEndPos + 4)
+        If nPos2 > 0 Then
+            sYear2 = GetYearAtPos(sText, nPos2)
+            If sYear2 <> "" Then
+                sBetween = Mid(sText, nRangeEndPos + 4, nPos2 - (nRangeEndPos + 4))
+                If SecondDateGetsIndicator2(sBetween) = TRUE Then
+                    sInd2 = "2"
+                Else
+                    sInd2 = "1"
+                End If
+                bool = CS.AddField(11, "046" & sInd2 & " " & Chr(223) & "k " & sYear2 & " " & Chr(223) & "2 edtf")
+            End If
+        End If
+        Exit Sub
+    End If
+
+    'Then check for a truncated range immediately after year1.
+    nRangeEndPos = FindTruncatedRangeEndPos(sText, nPos1)
+    If nRangeEndPos > 0 Then
+        sYear2 = ExpandTruncatedYear(sYear1, Mid(sText, nRangeEndPos, 2))
+        bool = CS.AddField(10, "0461 " & Chr(223) & "k " & sYear1 & " " & Chr(223) & "l " & sYear2 & " " & Chr(223) & "2 edtf")
+        didAdd = TRUE
+
+        'Look for an additional later year after the truncated range.
+        nPos2 = FindNextYearPos(sText, nRangeEndPos + 2)
+        If nPos2 > 0 Then
+            sYear2 = GetYearAtPos(sText, nPos2)
+            If sYear2 <> "" Then
+                sBetween = Mid(sText, nRangeEndPos + 2, nPos2 - (nRangeEndPos + 2))
+                If SecondDateGetsIndicator2(sBetween) = TRUE Then
+                    sInd2 = "2"
+                Else
+                    sInd2 = "1"
+                End If
+                bool = CS.AddField(11, "046" & sInd2 & " " & Chr(223) & "k " & sYear2 & " " & Chr(223) & "2 edtf")
+            End If
+        End If
+        Exit Sub
+    End If
+
+    'No immediate range found, so fall back to two separate years.
+    nPos2 = FindNextYearPos(sText, nPos1 + 4)
+
+    If nPos2 > 0 Then
+        sYear2 = GetYearAtPos(sText, nPos2)
+        sBetween = GetBetweenText(sText, nPos1, nPos2)
+
+        If sYear2 <> "" Then
+            bool = CS.AddField(10, "0461 " & Chr(223) & "k " & sYear1 & " " & Chr(223) & "2 edtf")
+            didAdd = TRUE
+
+            If SecondDateGetsIndicator2(sBetween) = TRUE Then
+                sInd2 = "2"
+            Else
+                sInd2 = "1"
+            End If
+
+            bool = CS.AddField(11, "046" & sInd2 & " " & Chr(223) & "k " & sYear2 & " " & Chr(223) & "2 edtf")
+            Exit Sub
+        End If
+    End If
+
+    'Single year only.
+    bool = CS.AddField(10, "0461 " & Chr(223) & "k " & sYear1 & " " & Chr(223) & "2 edtf")
+    didAdd = TRUE
+
+    If didAdd <> TRUE Then
+        Call Try505Fallback
+    End If
+End Sub
+
+Sub Try245FallbackSR
+    Dim CS As Object
+    Set CS = GetObject(, "Connex.Client")
+
+    Dim s245 As String
+    Dim sText As String
+    Dim sYear1 As String
+    Dim sYear2 As String
+    Dim sBetween As String
+    Dim nPos1 As Integer
+    Dim nPos2 As Integer
+    Dim nRangeEndPos As Integer
+    Dim bool
+    Dim sInd2 As String
+    Dim didAdd
+
+    didAdd = FALSE
+
+    bool = CS.GetField("245", 1, s245)
+    If bool <> TRUE Then
+        Call Try505Fallback
+        Exit Sub
+    End If
+
+    sText = Get245ABText(s245)
+    If sText = "" Then
+        Call Try505Fallback
+        Exit Sub
+    End If
+
+    nPos1 = FindFirstYearPos(sText)
+    If nPos1 = 0 Then
+        Call Try505Fallback
+        Exit Sub
+    End If
+
+    sYear1 = GetYearAtPos(sText, nPos1)
+    If sYear1 = "" Then
+        Call Try505Fallback
+        Exit Sub
+    End If
+
+    'First check for a full range immediately after year1.
+    nRangeEndPos = FindFullRangeEndPos(sText, nPos1)
+    If nRangeEndPos > 0 Then
+        sYear2 = GetYearAtPos(sText, nRangeEndPos)
+        bool = CS.AddField(10, "0461 " & Chr(223) & "o " & sYear1 & " " & Chr(223) & "p " & sYear2 & " " & Chr(223) & "2 edtf")
+        didAdd = TRUE
+
+        'Look for an additional later year after the full range.
+        nPos2 = FindNextYearPos(sText, nRangeEndPos + 4)
+        If nPos2 > 0 Then
+            sYear2 = GetYearAtPos(sText, nPos2)
+            If sYear2 <> "" Then
+                sBetween = Mid(sText, nRangeEndPos + 4, nPos2 - (nRangeEndPos + 4))
+                If SecondDateGetsIndicator2(sBetween) = TRUE Then
+                    sInd2 = "2"
+                Else
+                    sInd2 = "1"
+                End If
+                bool = CS.AddField(11, "046" & sInd2 & " " & Chr(223) & "o " & sYear2 & " " & Chr(223) & "2 edtf")
+            End If
+        End If
+        Exit Sub
+    End If
+
+    'Then check for a truncated range immediately after year1.
+    nRangeEndPos = FindTruncatedRangeEndPos(sText, nPos1)
+    If nRangeEndPos > 0 Then
+        sYear2 = ExpandTruncatedYear(sYear1, Mid(sText, nRangeEndPos, 2))
+        bool = CS.AddField(10, "0461 " & Chr(223) & "o " & sYear1 & " " & Chr(223) & "p " & sYear2 & " " & Chr(223) & "2 edtf")
+        didAdd = TRUE
+
+        'Look for an additional later year after the truncated range.
+        nPos2 = FindNextYearPos(sText, nRangeEndPos + 2)
+        If nPos2 > 0 Then
+            sYear2 = GetYearAtPos(sText, nPos2)
+            If sYear2 <> "" Then
+                sBetween = Mid(sText, nRangeEndPos + 2, nPos2 - (nRangeEndPos + 2))
+                If SecondDateGetsIndicator2(sBetween) = TRUE Then
+                    sInd2 = "2"
+                Else
+                    sInd2 = "1"
+                End If
+                bool = CS.AddField(11, "046" & sInd2 & " " & Chr(223) & "o " & sYear2 & " " & Chr(223) & "2 edtf")
+            End If
+        End If
+        Exit Sub
+    End If
+
+    'No immediate range found, so fall back to two separate years.
+    nPos2 = FindNextYearPos(sText, nPos1 + 4)
+
+    If nPos2 > 0 Then
+        sYear2 = GetYearAtPos(sText, nPos2)
+        sBetween = GetBetweenText(sText, nPos1, nPos2)
+
+        If sYear2 <> "" Then
+            bool = CS.AddField(10, "0461 " & Chr(223) & "o " & sYear1 & " " & Chr(223) & "2 edtf")
+            didAdd = TRUE
+
+            If SecondDateGetsIndicator2(sBetween) = TRUE Then
+                sInd2 = "2"
+            Else
+                sInd2 = "1"
+            End If
+
+            bool = CS.AddField(11, "046" & sInd2 & " " & Chr(223) & "o " & sYear2 & " " & Chr(223) & "2 edtf")
+            Exit Sub
+        End If
+    End If
+
+    'Single year only.
+    bool = CS.AddField(10, "0461 " & Chr(223) & "o " & sYear1 & " " & Chr(223) & "2 edtf")
+    didAdd = TRUE
+
+    If didAdd <> TRUE Then
+        Call Try505Fallback
+    End If
+End Sub
+
+Sub Try505Fallback
+    Dim CS As Object
+    Set CS = GetObject(, "Connex.Client")
+
+    Dim s505 As String
+    Dim sText As String
+    Dim bool
+    Dim nOcc As Integer
+    Dim nAddPos As Integer
+
+    nOcc = 1
+    nAddPos = 10
+
+    bool = CS.GetField("505", nOcc, s505)
+
+    Do While bool = TRUE
+        sText = Get505Text(s505)
+        If sText <> "" Then
+            nAddPos = Add505DatesFromText(sText, nAddPos)
+        End If
+
+        nOcc = nOcc + 1
+        bool = CS.GetField("505", nOcc, s505)
+    Loop
+End Sub
+
+Function Get245ABText(s245)
+    Get245ABText = s245
+End Function
+
+Function Get505Text(s505)
+    Get505Text = s505
+End Function
+
+Function Add505DatesFromText(sText, nAddPos)
+    Dim CS As Object
+    Set CS = GetObject(, "Connex.Client")
+
+    Dim nCursor As Integer
+    Dim nPos1 As Integer
+    Dim nPos2 As Integer
+    Dim nRangeEndPos As Integer
+    Dim sYear1 As String
+    Dim sYear2 As String
+    Dim sBetween As String
+    Dim sInd2 As String
+    Dim sAfter As String
+    Dim bool
+
+    nCursor = 1
+
+    Do While nCursor <= Len(sText) - 3
+        nPos1 = FindNextYearPos(sText, nCursor)
+        If nPos1 = 0 Then Exit Do
+
+        sYear1 = GetYearAtPos(sText, nPos1)
+        If sYear1 = "" Then
+            nCursor = nPos1 + 1
+        Else
+            '1. Immediate full range after year1
+            nRangeEndPos = FindFullRangeEndPos(sText, nPos1)
+            If nRangeEndPos > 0 Then
+                sYear2 = GetYearAtPos(sText, nRangeEndPos)
+
+                If sYear2 <> "" Then
+                    bool = CS.AddField(nAddPos, "0461 " & Chr(223) & "o " & sYear1 & " " & Chr(223) & "p " & sYear2 & " " & Chr(223) & "2 edtf")
+                    nAddPos = nAddPos + 1
+
+                    nPos2 = FindNextYearPos(sText, nRangeEndPos + 4)
+                    If nPos2 > 0 Then
+                        sYear2 = GetYearAtPos(sText, nPos2)
+                        If sYear2 <> "" Then
+                            sBetween = Mid(sText, nRangeEndPos + 4, nPos2 - (nRangeEndPos + 4))
+                            If SecondDateGetsIndicator2(sBetween) = TRUE Then
+                                sInd2 = "2"
+                            Else
+                                sInd2 = "1"
+                            End If
+                            bool = CS.AddField(nAddPos, "046" & sInd2 & " " & Chr(223) & "o " & sYear2 & " " & Chr(223) & "2 edtf")
+                            nAddPos = nAddPos + 1
+                            nCursor = nPos2 + 4
+                        Else
+                            nCursor = nRangeEndPos + 4
+                        End If
+                    Else
+                        nCursor = nRangeEndPos + 4
+                    End If
+                Else
+                    nCursor = nPos1 + 4
+                End If
+
+            Else
+                '2. Immediate truncated range after year1
+                'Check only the next few characters after the first year.
+                sAfter = Mid(sText, nPos1 + 4, 6)
+                nRangeEndPos = 0
+
+                If Len(sAfter) >= 3 Then
+                    If Left(sAfter, 1) = "-" Or Left(sAfter, 1) = "/" Then
+                        If Mid(sAfter, 2, 2) Like "##" Then
+                            nRangeEndPos = nPos1 + 5
+                        ElseIf Mid(sAfter, 2, 1) = " " Then
+                            If Mid(sAfter, 3, 2) Like "##" Then
+                                nRangeEndPos = nPos1 + 6
+                            End If
+                        End If
+                    ElseIf Len(sAfter) >= 4 Then
+                        If Mid(sAfter, 1, 1) = " " Then
+                            If Mid(sAfter, 2, 1) = "-" Or Mid(sAfter, 2, 1) = "/" Then
+                                If Mid(sAfter, 3, 2) Like "##" Then
+                                    nRangeEndPos = nPos1 + 6
+                                ElseIf Mid(sAfter, 3, 1) = " " Then
+                                    If Mid(sAfter, 4, 2) Like "##" Then
+                                        nRangeEndPos = nPos1 + 7
+                                    End If
+                                End If
+                            End If
+                        End If
+                    End If
+                End If
+
+                If nRangeEndPos > 0 Then
+                    sYear2 = ExpandTruncatedYear(sYear1, Mid(sText, nRangeEndPos, 2))
+
+                    If sYear2 <> "" Then
+                        bool = CS.AddField(nAddPos, "0461 " & Chr(223) & "o " & sYear1 & " " & Chr(223) & "p " & sYear2 & " " & Chr(223) & "2 edtf")
+                        nAddPos = nAddPos + 1
+
+                        nPos2 = FindNextYearPos(sText, nRangeEndPos + 2)
+                        If nPos2 > 0 Then
+                            sYear2 = GetYearAtPos(sText, nPos2)
+                            If sYear2 <> "" Then
+                                sBetween = Mid(sText, nRangeEndPos + 2, nPos2 - (nRangeEndPos + 2))
+                                If SecondDateGetsIndicator2(sBetween) = TRUE Then
+                                    sInd2 = "2"
+                                Else
+                                    sInd2 = "1"
+                                End If
+                                bool = CS.AddField(nAddPos, "046" & sInd2 & " " & Chr(223) & "o " & sYear2 & " " & Chr(223) & "2 edtf")
+                                nAddPos = nAddPos + 1
+                                nCursor = nPos2 + 4
+                            Else
+                                nCursor = nRangeEndPos + 2
+                            End If
+                        Else
+                            nCursor = nRangeEndPos + 2
+                        End If
+                    Else
+                        nCursor = nPos1 + 4
+                    End If
+
+                Else
+                    '3. Two separate years or single year
+                    nPos2 = FindNextYearPos(sText, nPos1 + 4)
+
+                    If nPos2 > 0 Then
+                        sYear2 = GetYearAtPos(sText, nPos2)
+                        sBetween = GetBetweenText(sText, nPos1, nPos2)
+
+                        If sYear2 <> "" Then
+                            bool = CS.AddField(nAddPos, "0461 " & Chr(223) & "o " & sYear1 & " " & Chr(223) & "2 edtf")
+                            nAddPos = nAddPos + 1
+
+                            If SecondDateGetsIndicator2(sBetween) = TRUE Then
+                                sInd2 = "2"
+                            Else
+                                sInd2 = "1"
+                            End If
+
+                            bool = CS.AddField(nAddPos, "046" & sInd2 & " " & Chr(223) & "o " & sYear2 & " " & Chr(223) & "2 edtf")
+                            nAddPos = nAddPos + 1
+                            nCursor = nPos2 + 4
+                        Else
+                            bool = CS.AddField(nAddPos, "0461 " & Chr(223) & "o " & sYear1 & " " & Chr(223) & "2 edtf")
+                            nAddPos = nAddPos + 1
+                            nCursor = nPos1 + 4
+                        End If
+                    Else
+                        bool = CS.AddField(nAddPos, "0461 " & Chr(223) & "o " & sYear1 & " " & Chr(223) & "2 edtf")
+                        nAddPos = nAddPos + 1
+                        nCursor = nPos1 + 4
+                    End If
+                End If
+            End If
+        End If
+    Loop
+
+    Add505DatesFromText = nAddPos
+End Function
+
+Function FindFirstYearPos(sText)
+    Dim i As Integer
+    Dim sYear As String
+
+    FindFirstYearPos = 0
+
+    For i = 1 To Len(sText) - 3
+        sYear = Mid(sText, i, 4)
+        If IsSaneYear(sYear) = TRUE Then
+            FindFirstYearPos = i
+            Exit Function
+        End If
+    Next i
+End Function
+
+Function FindNextYearPos(sText, nStartPos)
+    Dim i As Integer
+    Dim sYear As String
+
+    FindNextYearPos = 0
+
+    If nStartPos < 1 Then nStartPos = 1
+
+    For i = nStartPos To Len(sText) - 3
+        sYear = Mid(sText, i, 4)
+        If IsSaneYear(sYear) = TRUE Then
+            FindNextYearPos = i
+            Exit Function
+        End If
+    Next i
+End Function
+
+Function GetYearAtPos(sText, nPos)
+    Dim sYear As String
+
+    GetYearAtPos = ""
+
+    If nPos < 1 Then Exit Function
+    If nPos + 3 > Len(sText) Then Exit Function
+
+    sYear = Mid(sText, nPos, 4)
+    If IsSaneYear(sYear) = TRUE Then
+        GetYearAtPos = sYear
+    End If
+End Function
+
+Function IsSaneYear(sYear)
+    IsSaneYear = FALSE
+
+    If sYear Like "####" Then
+        If CInt(sYear) >= 1000 And CInt(sYear) <= 2099 Then
+            IsSaneYear = TRUE
+        End If
+    End If
+End Function
+
+Function GetBetweenText(sText, nPos1, nPos2)
+    Dim nStart As Integer
+    Dim nLen As Integer
+
+    GetBetweenText = ""
+
+    If nPos1 < 1 Or nPos2 < 1 Then Exit Function
+    If nPos2 <= nPos1 + 3 Then Exit Function
+
+    nStart = nPos1 + 4
+    nLen = nPos2 - nStart
+
+    If nLen > 0 Then
+        GetBetweenText = Mid(sText, nStart, nLen)
+    End If
+End Function
+
+Function StripSpaces(sText)
+    Dim sOut As String
+    Dim i As Integer
+    Dim ch As String
+
+    sOut = ""
+
+    For i = 1 To Len(sText)
+        ch = Mid(sText, i, 1)
+        If ch <> " " Then
+            If Asc(ch) <> 9 Then
+                sOut = sOut & ch
+            End If
+        End If
+    Next i
+
+    StripSpaces = sOut
+End Function
+
+Function IsExplicitRangeBetweenYears(sBetween)
+    Dim sCheck As String
+
+    IsExplicitRangeBetweenYears = FALSE
+    sCheck = StripSpaces(sBetween)
+
+    If sCheck = "-" Then
+        IsExplicitRangeBetweenYears = TRUE
+        Exit Function
+    End If
+
+    If sCheck = "/" Then
+        IsExplicitRangeBetweenYears = TRUE
+        Exit Function
+    End If
+End Function
+
+Function FindTruncatedRangeEndYear(sText, nPos1)
+    Dim sYear1 As String
+    Dim sRest As String
+    Dim sCompact As String
+    Dim sYY As String
+
+    FindTruncatedRangeEndYear = ""
+
+    sYear1 = GetYearAtPos(sText, nPos1)
+    If sYear1 = "" Then Exit Function
+
+    If nPos1 + 4 > Len(sText) Then Exit Function
+
+    sRest = Mid(sText, nPos1 + 4)
+    sCompact = StripSpaces(sRest)
+
+    If Len(sCompact) < 3 Then Exit Function
+
+    If Left(sCompact, 1) = "/" Or Left(sCompact, 1) = "-" Then
+        sYY = Mid(sCompact, 2, 2)
+        If sYY Like "##" Then
+            FindTruncatedRangeEndYear = ExpandTruncatedYear(sYear1, sYY)
+        End If
+    End If
+End Function
+
+Function FindTruncatedRangeEndPos(sText, nPos1)
+    'Find second 2-digit piece in:
+    '1945-46
+    '1945 - 46
+    '1945/46
+    '1945 / 46
+
+    Dim sAfter As String
+    Dim i As Integer
+
+    FindTruncatedRangeEndPos = 0
+
+    If nPos1 < 1 Then Exit Function
+    If nPos1 + 4 > Len(sText) Then Exit Function
+
+    sAfter = Mid(sText, nPos1 + 4)
+
+    For i = 1 To 6
+        If Len(sAfter) >= i + 2 Then
+            If Mid(sAfter, i, 1) = "-" Or Mid(sAfter, i, 1) = "/" Then
+                If Mid(sAfter, i + 1, 2) Like "##" Then
+                    FindTruncatedRangeEndPos = nPos1 + 4 + i
+                    Exit Function
+                End If
+
+                If Mid(sAfter, i + 1, 1) = " " Then
+                    If Mid(sAfter, i + 2, 2) Like "##" Then
+                        FindTruncatedRangeEndPos = nPos1 + 4 + i + 1
+                        Exit Function
+                    End If
+                End If
+            End If
+        End If
+    Next i
+End Function
+
+Function FindFullRangeEndPos(sText, nPos1)
+    'Find second 4-digit year in:
+    '1945-1946
+    '1945 - 1946
+    '1945/1946
+    '1945 / 1946
+
+    Dim sAfter As String
+    Dim i As Integer
+    Dim sYear2 As String
+
+    FindFullRangeEndPos = 0
+
+    If nPos1 < 1 Then Exit Function
+    If nPos1 + 4 > Len(sText) Then Exit Function
+
+    sAfter = Mid(sText, nPos1 + 4)
+
+    For i = 1 To 8
+        If Len(sAfter) >= i + 3 Then
+            If Mid(sAfter, i, 1) = "-" Or Mid(sAfter, i, 1) = "/" Then
+                sYear2 = Mid(sAfter, i + 1, 4)
+                If IsSaneYear(sYear2) = TRUE Then
+                    FindFullRangeEndPos = nPos1 + 4 + i
+                    Exit Function
+                End If
+
+                If Mid(sAfter, i + 1, 1) = " " Then
+                    sYear2 = Mid(sAfter, i + 2, 4)
+                    If IsSaneYear(sYear2) = TRUE Then
+                        FindFullRangeEndPos = nPos1 + 4 + i + 1
+                        Exit Function
+                    End If
+                End If
+            End If
+        End If
+    Next i
+End Function
+
+Function ExpandTruncatedYear(sYear1, sYY)
+    Dim nYear1 As Integer
+    Dim nCentury As Integer
+    Dim nYY As Integer
+    Dim nYear2 As Integer
+
+    ExpandTruncatedYear = ""
+
+    If IsSaneYear(sYear1) <> TRUE Then Exit Function
+    If sYY Like "##" <> TRUE Then Exit Function
+
+    nYear1 = CInt(sYear1)
+    nCentury = Int(nYear1 / 100) * 100
+    nYY = CInt(sYY)
+    nYear2 = nCentury + nYY
+
+    If nYear2 < nYear1 Then
+        nYear2 = nYear2 + 100
+    End If
+
+    ExpandTruncatedYear = CStr(nYear2)
+End Function
+
+Function SecondDateGetsIndicator2(sBetween)
+    Dim sLower As String
+
+    SecondDateGetsIndicator2 = FALSE
+    sLower = LCase(sBetween)
+
+    If InStr(sLower, "rev.") > 0 Then
+        SecondDateGetsIndicator2 = TRUE
+        Exit Function
+    End If
+
+    If InStr(sLower, " rev ") > 0 Then
+        SecondDateGetsIndicator2 = TRUE
+        Exit Function
+    End If
+
+    If Left(sLower, 4) = "rev " Then
+        SecondDateGetsIndicator2 = TRUE
+        Exit Function
+    End If
+
+    If Right(sLower, 4) = " rev" Then
+        SecondDateGetsIndicator2 = TRUE
+        Exit Function
+    End If
+
+    If InStr(sLower, "revised") > 0 Then
+        SecondDateGetsIndicator2 = TRUE
+        Exit Function
+    End If
+
+    If InStr(sLower, "revision") > 0 Then
+        SecondDateGetsIndicator2 = TRUE
+        Exit Function
+    End If
+End Function
 
 Sub SingleDateScore
-'Really, one single date, or a string of up to 6 single dates. Defaults to generating $k for the first 046 field. If resource is a compilation, user will need to manually change subfield coding
+    Dim CS As Object
+    Set CS = GetObject(, "Connex.Client")
 
-   Dim CS As Object
-   Set CS = GetObject(, "Connex.Client")
-   
-   Dim OldSingleDate As String
-   Dim NewSubKDate1 As String
-   Dim NewSubODate2 As String
-   Dim NewSubODate3 As String
-   Dim NewSubODate4 As String
-   Dim NewSubODate5 As String
-   Dim NewSubODate6 As String
-   
-   bool = CS.GetField("045", 1, OldSingleDate)
-   
-   NewSubKDate1 = Mid(OldSingleDate, 10, 4)
-   If Len(OldSingleDate) >= 19 Then
-   NewSubODate2 = Mid(OldSingleDate, 19, 4)
-   End If
-   If Len(OldSingleDate) >= 28 Then
-   NewSubODate3 = Mid(OldSingleDate, 28, 4)
-   End If
-   If Len(OldSingleDate) >= 37 Then
-   NewSubODate4 = Mid(OldSingleDate, 37, 4)
-   End If
-   If Len(OldSingleDate) >= 46 Then
-   NewSubODate5 = Mid(OldSingleDate, 46, 4)
-   End If
-   If Len(OldSingleDate) >= 55 Then
-   NewSubODate6 = Mid(OldSingleDate, 55, 4)
-   End If
-   
-   bool = CS.AddField(10,"0461 " & Chr(223) & "k " & NewSubKDate1 & " " & Chr(223) & "2 edtf")
-   If Len(OldSingleDate) >= 19 Then
-   bool = CS.AddField(11,"0461 " & Chr(223) & "o " & NewSubODate2 & " " & Chr(223) & "2 edtf")
-   End If
-   If Len(OldSingleDate) >= 28 Then
-   bool = CS.AddField(12,"0461 " & Chr(223) & "o " & NewSubODate3 & " " & Chr(223) & "2 edtf")
-   End If
-   If Len(OldSingleDate) >= 37 Then
-   bool = CS.AddField(13,"0461 " & Chr(223) & "o " & NewSubODate4 & " " & Chr(223) & "2 edtf")
-   End If
-   If Len(OldSingleDate) >= 46 Then
-   bool = CS.AddField(14,"0461 " & Chr(223) & "o " & NewSubODate5 & " " & Chr(223) & "2 edtf")
-   End If
-   If Len(OldSingleDate) >= 55 Then
-   bool = CS.AddField(15,"0461 " & Chr(223) & "o " & NewSubODate6 & " " & Chr(223) & "2 edtf")
-   End If
+    Dim OldSingleDate As String
+    Dim NewSubKDate1 As String
+    Dim NewSubODate2 As String
+    Dim NewSubODate3 As String
+    Dim NewSubODate4 As String
+    Dim NewSubODate5 As String
+    Dim NewSubODate6 As String
+    Dim bool
 
+    bool = CS.GetField("045", 1, OldSingleDate)
+
+    NewSubKDate1 = Mid(OldSingleDate, 10, 4)
+    If Len(OldSingleDate) >= 19 Then NewSubODate2 = Mid(OldSingleDate, 19, 4)
+    If Len(OldSingleDate) >= 28 Then NewSubODate3 = Mid(OldSingleDate, 28, 4)
+    If Len(OldSingleDate) >= 37 Then NewSubODate4 = Mid(OldSingleDate, 37, 4)
+    If Len(OldSingleDate) >= 46 Then NewSubODate5 = Mid(OldSingleDate, 46, 4)
+    If Len(OldSingleDate) >= 55 Then NewSubODate6 = Mid(OldSingleDate, 55, 4)
+
+    bool = CS.AddField(10, "0461 " & Chr(223) & "k " & NewSubKDate1 & " " & Chr(223) & "2 edtf")
+    If Len(OldSingleDate) >= 19 Then bool = CS.AddField(11, "0461 " & Chr(223) & "o " & NewSubODate2 & " " & Chr(223) & "2 edtf")
+    If Len(OldSingleDate) >= 28 Then bool = CS.AddField(12, "0461 " & Chr(223) & "o " & NewSubODate3 & " " & Chr(223) & "2 edtf")
+    If Len(OldSingleDate) >= 37 Then bool = CS.AddField(13, "0461 " & Chr(223) & "o " & NewSubODate4 & " " & Chr(223) & "2 edtf")
+    If Len(OldSingleDate) >= 46 Then bool = CS.AddField(14, "0461 " & Chr(223) & "o " & NewSubODate5 & " " & Chr(223) & "2 edtf")
+    If Len(OldSingleDate) >= 55 Then bool = CS.AddField(15, "0461 " & Chr(223) & "o " & NewSubODate6 & " " & Chr(223) & "2 edtf")
 End Sub
-
-
 
 Sub RangeDatesScore
-'Defaults to generating 046 subfields $k and $l. If resource is a compilation, user will need to manually change subfield coding
+    Dim CS As Object
+    Set CS = GetObject(, "Connex.Client")
 
-   Dim CS As Object
-   Set CS = GetObject(, "Connex.Client")
-   
-   Dim OldSingleDate As String
-   Dim NewSubKDate As String
-   Dim NewSubLDate As String
-   
-   bool = CS.GetField("045", 1, OldSingleDate)
-   
-   NewSubKDate = Mid(OldSingleDate, 10, 4)
-   NewSubLDate = Right(OldSingleDate, 4)
-   
-   bool = CS.AddField(10,"0461 " & Chr(223) & "k " & NewSubKDate & " " & Chr(223) & "l " & NewSubLDate & " " & Chr(223) & "2 edtf")
+    Dim OldSingleDate As String
+    Dim NewSubKDate As String
+    Dim NewSubLDate As String
+    Dim bool
 
+    bool = CS.GetField("045", 1, OldSingleDate)
+    NewSubKDate = Mid(OldSingleDate, 10, 4)
+    NewSubLDate = Right(OldSingleDate, 4)
+
+    bool = CS.AddField(10, "0461 " & Chr(223) & "k " & NewSubKDate & " " & Chr(223) & "l " & NewSubLDate & " " & Chr(223) & "2 edtf")
 End Sub
-
-
 
 Sub SingleDateSR
-'Really, one single date, or a string of up to 6 single dates. Defaults to generating subfield 046 subfield $o. If resource contains a single work, user will need to manually change subfield coding
+    Dim CS As Object
+    Set CS = GetObject(, "Connex.Client")
 
-   Dim CS As Object
-   Set CS = GetObject(, "Connex.Client")
-   
-   Dim OldSingleDate As String
-   Dim NewSubODate1 As String
-   Dim NewSubODate2 As String
-   Dim NewSubODate3 As String
-   Dim NewSubODate4 As String
-   Dim NewSubODate5 As String
-   Dim NewSubODate6 As String
-   
-   bool = CS.GetField("045", 1, OldSingleDate)
-   
-   NewSubODate1 = Mid(OldSingleDate, 10, 4)
-   If Len(OldSingleDate) >= 19 Then
-   NewSubODate2 = Mid(OldSingleDate, 19, 4)
-   End If
-   If Len(OldSingleDate) >= 28 Then
-   NewSubODate3 = Mid(OldSingleDate, 28, 4)
-   End If
-   If Len(OldSingleDate) >= 37 Then
-   NewSubODate4 = Mid(OldSingleDate, 37, 4)
-   End If
-   If Len(OldSingleDate) >= 46 Then
-   NewSubODate5 = Mid(OldSingleDate, 46, 4)
-   End If
-   If Len(OldSingleDate) >= 55 Then
-   NewSubODate6 = Mid(OldSingleDate, 55, 4)
-   End If
-   
-   bool = CS.AddField(10,"0461 " & Chr(223) & "o " & NewSubODate1 & " " & Chr(223) & "2 edtf")
-   If Len(OldSingleDate) >= 19 Then
-   bool = CS.AddField(11,"0461 " & Chr(223) & "o " & NewSubODate2 & " " & Chr(223) & "2 edtf")
-   End If
-   If Len(OldSingleDate) >= 28 Then
-   bool = CS.AddField(12,"0461 " & Chr(223) & "o " & NewSubODate3 & " " & Chr(223) & "2 edtf")
-   End If
-   If Len(OldSingleDate) >= 37 Then
-   bool = CS.AddField(13,"0461 " & Chr(223) & "o " & NewSubODate4 & " " & Chr(223) & "2 edtf")
-   End If
-   If Len(OldSingleDate) >= 46 Then
-   bool = CS.AddField(14,"0461 " & Chr(223) & "o " & NewSubODate5 & " " & Chr(223) & "2 edtf")
-   End If
-   If Len(OldSingleDate) >= 55 Then
-   bool = CS.AddField(15,"0461 " & Chr(223) & "o " & NewSubODate6 & " " & Chr(223) & "2 edtf")
-   End If
+    Dim OldSingleDate As String
+    Dim NewSubODate1 As String
+    Dim NewSubODate2 As String
+    Dim NewSubODate3 As String
+    Dim NewSubODate4 As String
+    Dim NewSubODate5 As String
+    Dim NewSubODate6 As String
+    Dim bool
 
+    bool = CS.GetField("045", 1, OldSingleDate)
+
+    NewSubODate1 = Mid(OldSingleDate, 10, 4)
+    If Len(OldSingleDate) >= 19 Then NewSubODate2 = Mid(OldSingleDate, 19, 4)
+    If Len(OldSingleDate) >= 28 Then NewSubODate3 = Mid(OldSingleDate, 28, 4)
+    If Len(OldSingleDate) >= 37 Then NewSubODate4 = Mid(OldSingleDate, 37, 4)
+    If Len(OldSingleDate) >= 46 Then NewSubODate5 = Mid(OldSingleDate, 46, 4)
+    If Len(OldSingleDate) >= 55 Then NewSubODate6 = Mid(OldSingleDate, 55, 4)
+
+    bool = CS.AddField(10, "0461 " & Chr(223) & "o " & NewSubODate1 & " " & Chr(223) & "2 edtf")
+    If Len(OldSingleDate) >= 19 Then bool = CS.AddField(11, "0461 " & Chr(223) & "o " & NewSubODate2 & " " & Chr(223) & "2 edtf")
+    If Len(OldSingleDate) >= 28 Then bool = CS.AddField(12, "0461 " & Chr(223) & "o " & NewSubODate3 & " " & Chr(223) & "2 edtf")
+    If Len(OldSingleDate) >= 37 Then bool = CS.AddField(13, "0461 " & Chr(223) & "o " & NewSubODate4 & " " & Chr(223) & "2 edtf")
+    If Len(OldSingleDate) >= 46 Then bool = CS.AddField(14, "0461 " & Chr(223) & "o " & NewSubODate5 & " " & Chr(223) & "2 edtf")
+    If Len(OldSingleDate) >= 55 Then bool = CS.AddField(15, "0461 " & Chr(223) & "o " & NewSubODate6 & " " & Chr(223) & "2 edtf")
 End Sub
 
-
-
 Sub RangeDatesSR
-'Defaults to generating 046 subfields $o and $p. If resource contains a single work, user will need to manually change subfield coding
+    Dim CS As Object
+    Set CS = GetObject(, "Connex.Client")
 
-   Dim CS As Object
-   Set CS = GetObject(, "Connex.Client")
-   
-   Dim OldSingleDate As String
-   Dim NewSubODate As String
-   Dim NewSubPDate As String
-   
-   bool = CS.GetField("045", 1, OldSingleDate)
-   
-   NewSubODate = Mid(OldSingleDate, 10, 4)
-   NewSubPDate = Right(OldSingleDate, 4)
-   
-   bool = CS.AddField(10,"0461 " & Chr(223) & "o " & NewSubODate & " " & Chr(223) & "p " & NewSubPDate & " " & Chr(223) & "2 edtf")
+    Dim OldSingleDate As String
+    Dim NewSubODate As String
+    Dim NewSubPDate As String
+    Dim bool
 
+    bool = CS.GetField("045", 1, OldSingleDate)
+    NewSubODate = Mid(OldSingleDate, 10, 4)
+    NewSubPDate = Right(OldSingleDate, 4)
+
+    bool = CS.AddField(10, "0461 " & Chr(223) & "o " & NewSubODate & " " & Chr(223) & "p " & NewSubPDate & " " & Chr(223) & "2 edtf")
 End Sub
